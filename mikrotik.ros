@@ -1,0 +1,79 @@
+# Define the URL to use, 10 is a good tradeoff for efficiency and reliability. Choose 254 for maximum accuracy.
+:local url "https://raw.githubusercontent.com/PiracyShield/RoutingTable/refs/heads/main/10.txt"
+
+# Define the interface that is able to bypass the censorship
+:local routeInterface "wireguard1"
+
+# DO NOT TOUCH ANYTHING SINCE THIS LINE
+# DO NOT TOUCH ANYTHING SINCE THIS LINE
+# DO NOT TOUCH ANYTHING SINCE THIS LINE
+
+:local filename "subnets.txt"
+
+# Attempt to download the file
+:log info "Attempting to download the file from $url"
+/tool fetch url=$url mode=https dst-path=$filename
+
+# Verify if the file was downloaded successfully
+:if ([:len [/file find name=$filename]] = 0) do={
+    :log error "Failed to download the file."
+    :error "Failed to download the file."
+}
+
+# Read the file content
+:local fileContents [/file get $filename contents]
+
+# Log the file contents to verify format
+:local contentLen [ :len $fileContents ] ;
+:log info "File contents downloaded $contentLen "
+
+# Remove any existing routes that use wireguard1 interface to avoid duplicates
+:log info "Removing any existing routes on interface $routeInterface"
+/ip route remove [find where gateway=$routeInterface]
+
+# Process the file contents and add routes
+:local currentLine ""
+:local char ""
+:local lineCount 0
+
+# Iterate through each character in the file contents
+:for i from=0 to=([:len $fileContents] - 1) do={
+    :set char [:pick $fileContents $i]
+    
+    # If we hit a newline or we're at the end of the file
+    :if ($char = "\n" || $i = ([:len $fileContents] - 1)) do={
+        # If we're at the last character, add it to currentLine
+        :if ($i = ([:len $fileContents] - 1)) do={
+            :set currentLine ($currentLine . $char)
+        }
+        
+        # Process the line if it's not empty
+        :if ([:len $currentLine] > 0) do={
+            # Remove any trailing/leading whitespace
+            :set currentLine [:pick $currentLine 0 [:len $currentLine]]
+            
+            # Add the route
+            :do {
+                /ip route add dst-address=$currentLine gateway=$routeInterface
+                :set lineCount ($lineCount + 1)
+                :log info "Added route for subnet: $currentLine"
+            } on-error={
+                :log error "Failed to add route for subnet: $currentLine"
+            }
+        }
+        # Reset currentLine for next iteration
+        :set currentLine ""
+    } else={
+        # Add character to current line if it's not a carriage return
+        :if ($char != "\r") do={
+            :set currentLine ($currentLine . $char)
+        }
+    }
+}
+
+# Log the total number of routes added
+:log info "Added $lineCount routes from the file"
+
+# Clean up by removing the file after processing
+/file remove $filename
+:log info "All routes added successfully from the downloaded file."
